@@ -52,7 +52,9 @@ fn deploy_mock_dex(
 
 // Full setup with mock lending + mock dex
 // Returns (vault, btc_token, stable_token, lending, dex)
-fn setup_full() -> (ContractAddress, ContractAddress, ContractAddress, ContractAddress, ContractAddress) {
+fn setup_full() -> (
+    ContractAddress, ContractAddress, ContractAddress, ContractAddress, ContractAddress,
+) {
     let btc_token = deploy_mock_erc20('WBTC', 'WBTC', 8);
     let stable_token = deploy_mock_erc20('USDC', 'USDC', 6);
 
@@ -66,9 +68,9 @@ fn setup_full() -> (ContractAddress, ContractAddress, ContractAddress, ContractA
     // Fund MockLending with BTC for collateral returns
     mint_tokens(btc_token, lending, 1_000_000_000); // 10 BTC
 
-    // Fund MockDEX with BTC for swaps (USDC→BTC)
+    // Fund MockDEX with BTC for swaps (USDC->BTC)
     mint_tokens(btc_token, dex, 1_000_000_000); // 10 BTC
-    // Fund MockDEX with USDC for swaps (BTC→USDC)
+    // Fund MockDEX with USDC for swaps (BTC->USDC)
     mint_tokens(stable_token, dex, 1_000_000_000_000); // 1M USDC
 
     let vault_contract = declare("BitCoil").unwrap().contract_class();
@@ -103,6 +105,8 @@ fn fund_user(btc_token: ContractAddress, vault: ContractAddress, amount: u256) {
     stop_cheat_caller_address(btc_token);
 }
 
+// ==================== BASIC TESTS ====================
+
 #[test]
 fn test_deploy() {
     let (vault_address, _, _) = setup_simple();
@@ -130,12 +134,15 @@ fn test_deposit_no_loops() {
     assert(position.is_active, 'Should be active');
     assert(position.deposited_amount == deposit_amount, 'Wrong deposit amount');
     assert(position.total_collateral == deposit_amount, 'Wrong collateral');
+    assert(position.vesu_collateral == 0, 'Should have 0 in Vesu');
     assert(position.total_debt == 0, 'Should have no debt');
     assert(position.loop_count == 0, 'Should have 0 loops');
 
     assert(btc.balance_of(USER()) == 0, 'User should have 0 BTC');
     assert(btc.balance_of(vault_address) == deposit_amount, 'Vault should have BTC');
 }
+
+// ==================== LOOP TESTS ====================
 
 #[test]
 fn test_deposit_with_one_loop() {
@@ -155,12 +162,12 @@ fn test_deposit_with_one_loop() {
     assert(position.total_collateral > deposit_amount, 'Collateral should increase');
     assert(position.total_debt > 0, 'Should have debt');
 
-    // With 1 BTC at $100k, borrow 65% = $65k USDC
-    // Swap $65k USDC → 0.65 BTC at 1:1 price ratio
-    // Total collateral = 1.0 + 0.65 = 1.65 BTC
-    // In satoshis: 100M + 65M = 165M
+    // 1 BTC at $100k, borrow 65% = $65k, swap to 0.65 BTC
+    // Total collateral = 1.0 + 0.65 = 1.65 BTC = 165M sats
     assert(position.total_collateral == 165_000_000, 'Expected 1.65 BTC');
-    // Debt in USDC (6 decimals): $65k = 65_000_000_000
+    // Vesu has the initial 1 BTC deposit
+    assert(position.vesu_collateral == 100_000_000, 'Expected 1 BTC in Vesu');
+    // Debt: $65k USDC
     assert(position.total_debt == 65_000_000_000, 'Expected 65k USDC debt');
 }
 
@@ -178,14 +185,37 @@ fn test_deposit_with_two_loops() {
 
     let position = vault.get_position(USER());
     assert(position.loop_count == 2, 'Should have 2 loops');
-    // Loop 1: deposit 1 BTC, borrow $65k, get 0.65 BTC
-    // Loop 2: deposit 0.65 BTC, borrow 65% of 0.65 BTC value = $42,250, get 0.4225 BTC
-    // Total collateral = 1.0 + 0.65 + 0.4225 = 2.0725 BTC
-    // But due to integer math: 65M * 65 / 100 = 42_250_000 sats borrow
-    // 42_250_000 sats * 100_000_000_000 / 100_000_000 = .. let me just check > 200M
+    // After 2 loops: total = 1 + 0.65 + 0.4225 = 2.0725 BTC
     assert(position.total_collateral > 200_000_000, 'Should be >2 BTC');
+    // Vesu has 1 + 0.65 = 1.65 BTC
+    assert(position.vesu_collateral == 165_000_000, 'Expected 1.65 BTC in Vesu');
     assert(position.total_debt > 100_000_000_000, 'Should have >$100k debt');
 }
+
+#[test]
+fn test_vesu_collateral_tracking_four_loops() {
+    let (vault_address, btc_token, _, _, _) = setup_full();
+    let vault = IBitCoilDispatcher { contract_address: vault_address };
+
+    let deposit_amount: u256 = 100_000_000;
+    fund_user(btc_token, vault_address, deposit_amount);
+
+    start_cheat_caller_address(vault_address, USER());
+    vault.deposit_and_loop(deposit_amount, 4);
+    stop_cheat_caller_address(vault_address);
+
+    let position = vault.get_position(USER());
+    assert(position.loop_count == 4, 'Should have 4 loops');
+    // vesu_collateral should be less than total_collateral
+    // (last swap result stays in vault)
+    assert(position.vesu_collateral < position.total_collateral, 'Vesu < total');
+    assert(position.vesu_collateral > 0, 'Vesu should be > 0');
+    // vault_btc = total - vesu
+    let vault_btc = position.total_collateral - position.vesu_collateral;
+    assert(vault_btc > 0, 'Vault should hold some BTC');
+}
+
+// ==================== LEVERAGE & HEALTH ====================
 
 #[test]
 fn test_effective_leverage_with_loops() {
@@ -217,13 +247,196 @@ fn test_health_factor_with_debt() {
     stop_cheat_caller_address(vault_address);
 
     let hf = vault.get_health_factor(USER());
-    // collateral = 165M sats, debt = 65k USDC
-    // Health = (collateral * 75) / debt
-    // Since these are different units, the simple formula is approximate
-    // 165M * 75 / 65B = 0.19... but this is cross-unit
-    // The real oracle-based calculation is in Phase 5
     assert(hf > 0, 'HF should be > 0');
 }
+
+#[test]
+fn test_health_factor_after_one_loop() {
+    let (vault_address, btc_token, _, _, _) = setup_full();
+    let vault = IBitCoilDispatcher { contract_address: vault_address };
+
+    let amount: u256 = 100_000_000;
+    fund_user(btc_token, vault_address, amount);
+
+    start_cheat_caller_address(vault_address, USER());
+    vault.deposit_and_loop(amount, 1);
+    stop_cheat_caller_address(vault_address);
+
+    let hf = vault.get_health_factor(USER());
+    // After 1 loop: collateral = 1.65 BTC, debt = $65k
+    // HF = (1.65 * $100k * 0.75) / $65k = 190.38
+    // Scaled by 100 -> ~190
+    assert(hf > 150, 'HF should be > 1.5');
+    assert(hf < 250, 'HF should be < 2.5');
+}
+
+#[test]
+fn test_health_factor_no_position() {
+    let (vault_address, _, _) = setup_simple();
+    let vault = IBitCoilDispatcher { contract_address: vault_address };
+
+    let hf = vault.get_health_factor(USER());
+    assert(hf == 0xFFFFFFFF_u256, 'Should be max for no position');
+}
+
+#[test]
+fn test_leverage_increases_with_loops() {
+    let (vault_address, btc_token, _, _, _) = setup_full();
+    let vault = IBitCoilDispatcher { contract_address: vault_address };
+
+    let amount: u256 = 100_000_000;
+    fund_user(btc_token, vault_address, amount);
+
+    start_cheat_caller_address(vault_address, USER());
+    vault.deposit_and_loop(amount, 1);
+    stop_cheat_caller_address(vault_address);
+
+    let lev1 = vault.get_effective_leverage(USER());
+    // After 1 loop at 65% LTV: leverage = 1.65x -> 165 scaled by 100
+    assert(lev1 == 165, 'Should be 1.65x');
+}
+
+// ==================== UNWIND TESTS ====================
+
+#[test]
+fn test_full_unwind_no_loops() {
+    let (vault_address, btc_token, _) = setup_simple();
+    let vault = IBitCoilDispatcher { contract_address: vault_address };
+    let btc = IERC20Dispatcher { contract_address: btc_token };
+
+    let amount: u256 = 100_000_000;
+    fund_user(btc_token, vault_address, amount);
+
+    start_cheat_caller_address(vault_address, USER());
+    vault.deposit_and_loop(amount, 0);
+    stop_cheat_caller_address(vault_address);
+
+    start_cheat_caller_address(vault_address, USER());
+    vault.full_unwind();
+    stop_cheat_caller_address(vault_address);
+
+    let position = vault.get_position(USER());
+    assert(!position.is_active, 'Should be inactive');
+    assert(btc.balance_of(USER()) == amount, 'Should get BTC back');
+}
+
+#[test]
+fn test_full_unwind_with_one_loop() {
+    let (vault_address, btc_token, _, _, _) = setup_full();
+    let vault = IBitCoilDispatcher { contract_address: vault_address };
+    let btc = IERC20Dispatcher { contract_address: btc_token };
+
+    let amount: u256 = 100_000_000;
+    fund_user(btc_token, vault_address, amount);
+
+    start_cheat_caller_address(vault_address, USER());
+    vault.deposit_and_loop(amount, 1);
+    stop_cheat_caller_address(vault_address);
+
+    let pos = vault.get_position(USER());
+    assert(pos.loop_count == 1, 'Should have 1 loop');
+    assert(pos.total_debt > 0, 'Should have debt');
+
+    start_cheat_caller_address(vault_address, USER());
+    vault.full_unwind();
+    stop_cheat_caller_address(vault_address);
+
+    let pos_after = vault.get_position(USER());
+    assert(!pos_after.is_active, 'Should be inactive');
+    assert(pos_after.total_debt == 0, 'Debt should be 0');
+
+    // With perfect mock pricing, user gets back exactly 1 BTC
+    let user_btc = btc.balance_of(USER());
+    assert(user_btc == amount, 'Should get 1 BTC back');
+}
+
+#[test]
+fn test_full_unwind_with_two_loops() {
+    let (vault_address, btc_token, _, _, _) = setup_full();
+    let vault = IBitCoilDispatcher { contract_address: vault_address };
+    let btc = IERC20Dispatcher { contract_address: btc_token };
+
+    let amount: u256 = 100_000_000;
+    fund_user(btc_token, vault_address, amount);
+
+    start_cheat_caller_address(vault_address, USER());
+    vault.deposit_and_loop(amount, 2);
+    stop_cheat_caller_address(vault_address);
+
+    let pos = vault.get_position(USER());
+    assert(pos.loop_count == 2, 'Should have 2 loops');
+
+    start_cheat_caller_address(vault_address, USER());
+    vault.full_unwind();
+    stop_cheat_caller_address(vault_address);
+
+    let pos_after = vault.get_position(USER());
+    assert(!pos_after.is_active, 'Should be inactive');
+
+    // With perfect mock pricing, user gets back exactly 1 BTC
+    let user_btc = btc.balance_of(USER());
+    assert(user_btc == amount, 'Should get 1 BTC back');
+}
+
+#[test]
+fn test_partial_unwind() {
+    let (vault_address, btc_token, _, _, _) = setup_full();
+    let vault = IBitCoilDispatcher { contract_address: vault_address };
+
+    let amount: u256 = 100_000_000;
+    fund_user(btc_token, vault_address, amount);
+
+    start_cheat_caller_address(vault_address, USER());
+    vault.deposit_and_loop(amount, 2);
+    stop_cheat_caller_address(vault_address);
+
+    let pos_before = vault.get_position(USER());
+    assert(pos_before.loop_count == 2, 'Should have 2 loops');
+
+    // Unwind 1 loop
+    start_cheat_caller_address(vault_address, USER());
+    vault.unwind(1);
+    stop_cheat_caller_address(vault_address);
+
+    let pos_after = vault.get_position(USER());
+    assert(pos_after.loop_count == 1, 'Should have 1 loop');
+    assert(pos_after.is_active, 'Should still be active');
+    assert(pos_after.total_debt < pos_before.total_debt, 'Debt should decrease');
+    assert(pos_after.total_collateral < pos_before.total_collateral, 'Collateral should decrease');
+    // Vesu collateral should match 1-loop state
+    assert(pos_after.vesu_collateral == 100_000_000, 'Vesu should have 1 BTC');
+}
+
+#[test]
+fn test_partial_unwind_then_full_unwind() {
+    let (vault_address, btc_token, _, _, _) = setup_full();
+    let vault = IBitCoilDispatcher { contract_address: vault_address };
+    let btc = IERC20Dispatcher { contract_address: btc_token };
+
+    let amount: u256 = 100_000_000;
+    fund_user(btc_token, vault_address, amount);
+
+    start_cheat_caller_address(vault_address, USER());
+    vault.deposit_and_loop(amount, 2);
+    stop_cheat_caller_address(vault_address);
+
+    // Partial unwind 1 loop
+    start_cheat_caller_address(vault_address, USER());
+    vault.unwind(1);
+    stop_cheat_caller_address(vault_address);
+
+    // Then full unwind the rest
+    start_cheat_caller_address(vault_address, USER());
+    vault.full_unwind();
+    stop_cheat_caller_address(vault_address);
+
+    let pos = vault.get_position(USER());
+    assert(!pos.is_active, 'Should be inactive');
+    let user_btc = btc.balance_of(USER());
+    assert(user_btc == amount, 'Should get 1 BTC back');
+}
+
+// ==================== SAFETY / ADMIN TESTS ====================
 
 #[test]
 #[should_panic(expected: 'Amount cannot be zero')]
@@ -257,6 +470,48 @@ fn test_deposit_when_paused() {
 
     start_cheat_caller_address(vault_address, USER());
     vault.deposit_and_loop(100, 0);
+}
+
+#[test]
+#[should_panic(expected: 'Contract is paused')]
+fn test_unwind_when_paused() {
+    let (vault_address, btc_token, _, _, _) = setup_full();
+    let vault = IBitCoilDispatcher { contract_address: vault_address };
+
+    let amount: u256 = 100_000_000;
+    fund_user(btc_token, vault_address, amount);
+
+    start_cheat_caller_address(vault_address, USER());
+    vault.deposit_and_loop(amount, 1);
+    stop_cheat_caller_address(vault_address);
+
+    start_cheat_caller_address(vault_address, OWNER());
+    vault.pause();
+    stop_cheat_caller_address(vault_address);
+
+    start_cheat_caller_address(vault_address, USER());
+    vault.unwind(1);
+}
+
+#[test]
+#[should_panic(expected: 'Contract is paused')]
+fn test_full_unwind_when_paused() {
+    let (vault_address, btc_token, _, _, _) = setup_full();
+    let vault = IBitCoilDispatcher { contract_address: vault_address };
+
+    let amount: u256 = 100_000_000;
+    fund_user(btc_token, vault_address, amount);
+
+    start_cheat_caller_address(vault_address, USER());
+    vault.deposit_and_loop(amount, 1);
+    stop_cheat_caller_address(vault_address);
+
+    start_cheat_caller_address(vault_address, OWNER());
+    vault.pause();
+    stop_cheat_caller_address(vault_address);
+
+    start_cheat_caller_address(vault_address, USER());
+    vault.full_unwind();
 }
 
 #[test]
@@ -294,40 +549,6 @@ fn test_set_max_loops() {
 }
 
 #[test]
-fn test_health_factor_no_position() {
-    let (vault_address, _, _) = setup_simple();
-    let vault = IBitCoilDispatcher { contract_address: vault_address };
-
-    let hf = vault.get_health_factor(USER());
-    assert(hf == 0xFFFFFFFF_u256, 'Should be max for no position');
-}
-
-#[test]
-#[should_panic(expected: 'No active position')]
-fn test_unwind_no_position() {
-    let (vault_address, _, _) = setup_simple();
-    let vault = IBitCoilDispatcher { contract_address: vault_address };
-
-    start_cheat_caller_address(vault_address, USER());
-    vault.unwind(1);
-}
-
-#[test]
-#[should_panic(expected: 'Position already active')]
-fn test_double_deposit() {
-    let (vault_address, btc_token, _) = setup_simple();
-    let vault = IBitCoilDispatcher { contract_address: vault_address };
-
-    let amount: u256 = 100_000_000;
-    fund_user(btc_token, vault_address, amount * 2);
-
-    start_cheat_caller_address(vault_address, USER());
-    vault.deposit_and_loop(amount, 0);
-    // Second deposit should fail
-    vault.deposit_and_loop(amount, 0);
-}
-
-#[test]
 fn test_set_min_health_factor() {
     let (vault_address, _, _) = setup_simple();
     let vault = IBitCoilDispatcher { contract_address: vault_address };
@@ -335,127 +556,6 @@ fn test_set_min_health_factor() {
     start_cheat_caller_address(vault_address, OWNER());
     vault.set_min_health_factor(150);
     stop_cheat_caller_address(vault_address);
-}
-
-#[test]
-fn test_full_unwind_no_loops() {
-    let (vault_address, btc_token, _) = setup_simple();
-    let vault = IBitCoilDispatcher { contract_address: vault_address };
-    let btc = IERC20Dispatcher { contract_address: btc_token };
-
-    let amount: u256 = 100_000_000;
-    fund_user(btc_token, vault_address, amount);
-
-    // Deposit with 0 loops
-    start_cheat_caller_address(vault_address, USER());
-    vault.deposit_and_loop(amount, 0);
-    stop_cheat_caller_address(vault_address);
-
-    // Full unwind should return all BTC
-    start_cheat_caller_address(vault_address, USER());
-    vault.full_unwind();
-    stop_cheat_caller_address(vault_address);
-
-    let position = vault.get_position(USER());
-    assert(!position.is_active, 'Should be inactive');
-    assert(btc.balance_of(USER()) == amount, 'Should get BTC back');
-}
-
-#[test]
-fn test_full_unwind_with_loops() {
-    let (vault_address, btc_token, _, _, _) = setup_full();
-    let vault = IBitCoilDispatcher { contract_address: vault_address };
-    let btc = IERC20Dispatcher { contract_address: btc_token };
-
-    let amount: u256 = 100_000_000;
-    fund_user(btc_token, vault_address, amount);
-
-    start_cheat_caller_address(vault_address, USER());
-    vault.deposit_and_loop(amount, 1);
-    stop_cheat_caller_address(vault_address);
-
-    // Verify position is active with loops
-    let pos = vault.get_position(USER());
-    assert(pos.loop_count == 1, 'Should have 1 loop');
-    assert(pos.total_debt > 0, 'Should have debt');
-
-    // Full unwind
-    start_cheat_caller_address(vault_address, USER());
-    vault.full_unwind();
-    stop_cheat_caller_address(vault_address);
-
-    let pos_after = vault.get_position(USER());
-    assert(!pos_after.is_active, 'Should be inactive');
-    // User should get back approximately their original BTC
-    // (minus any swap slippage, which is 0 with mock at same price)
-    let user_btc = btc.balance_of(USER());
-    assert(user_btc > 0, 'Should have some BTC back');
-}
-
-#[test]
-fn test_partial_unwind() {
-    let (vault_address, btc_token, _, _, _) = setup_full();
-    let vault = IBitCoilDispatcher { contract_address: vault_address };
-
-    let amount: u256 = 100_000_000;
-    fund_user(btc_token, vault_address, amount);
-
-    start_cheat_caller_address(vault_address, USER());
-    vault.deposit_and_loop(amount, 2);
-    stop_cheat_caller_address(vault_address);
-
-    let pos_before = vault.get_position(USER());
-    assert(pos_before.loop_count == 2, 'Should have 2 loops');
-
-    // Unwind 1 loop
-    start_cheat_caller_address(vault_address, USER());
-    vault.unwind(1);
-    stop_cheat_caller_address(vault_address);
-
-    let pos_after = vault.get_position(USER());
-    assert(pos_after.loop_count == 1, 'Should have 1 loop');
-    assert(pos_after.is_active, 'Should still be active');
-    assert(pos_after.total_debt < pos_before.total_debt, 'Debt should decrease');
-}
-
-#[test]
-fn test_health_factor_after_one_loop() {
-    let (vault_address, btc_token, _, _, _) = setup_full();
-    let vault = IBitCoilDispatcher { contract_address: vault_address };
-
-    let amount: u256 = 100_000_000;
-    fund_user(btc_token, vault_address, amount);
-
-    start_cheat_caller_address(vault_address, USER());
-    vault.deposit_and_loop(amount, 1);
-    stop_cheat_caller_address(vault_address);
-
-    let hf = vault.get_health_factor(USER());
-    // After 1 loop: collateral = 1.65 BTC, debt = $65k
-    // HF = (1.65 * $100k * 0.75) / $65k = 190.38...
-    // Scaled by 100 → ~190
-    assert(hf > 150, 'HF should be > 1.5');
-    assert(hf < 250, 'HF should be < 2.5');
-}
-
-#[test]
-fn test_leverage_increases_with_loops() {
-    let (vault_address, btc_token, _, _, _) = setup_full();
-    let vault = IBitCoilDispatcher { contract_address: vault_address };
-
-    let amount: u256 = 100_000_000;
-    fund_user(btc_token, vault_address, amount);
-
-    start_cheat_caller_address(vault_address, USER());
-    vault.deposit_and_loop(amount, 1);
-    stop_cheat_caller_address(vault_address);
-
-    let lev1 = vault.get_effective_leverage(USER());
-
-    // Can't add more loops to existing position (already active)
-    // But we can verify the leverage value
-    // After 1 loop at 65% LTV: leverage = 1.65x → 165 scaled by 100
-    assert(lev1 == 165, 'Should be 1.65x');
 }
 
 #[test]
@@ -469,6 +569,36 @@ fn test_set_btc_price() {
 }
 
 #[test]
+fn test_set_max_slippage_bps() {
+    let (vault_address, _, _) = setup_simple();
+    let vault = IBitCoilDispatcher { contract_address: vault_address };
+
+    start_cheat_caller_address(vault_address, OWNER());
+    vault.set_max_slippage_bps(200); // 2%
+    stop_cheat_caller_address(vault_address);
+}
+
+#[test]
+#[should_panic(expected: 'Slippage exceeded')]
+fn test_set_max_slippage_too_high() {
+    let (vault_address, _, _) = setup_simple();
+    let vault = IBitCoilDispatcher { contract_address: vault_address };
+
+    start_cheat_caller_address(vault_address, OWNER());
+    vault.set_max_slippage_bps(2000); // 20% - should fail (max 10%)
+}
+
+#[test]
+#[should_panic(expected: 'No active position')]
+fn test_unwind_no_position() {
+    let (vault_address, _, _) = setup_simple();
+    let vault = IBitCoilDispatcher { contract_address: vault_address };
+
+    start_cheat_caller_address(vault_address, USER());
+    vault.unwind(1);
+}
+
+#[test]
 #[should_panic(expected: 'No active position')]
 fn test_full_unwind_no_position() {
     let (vault_address, _, _) = setup_simple();
@@ -476,4 +606,119 @@ fn test_full_unwind_no_position() {
 
     start_cheat_caller_address(vault_address, USER());
     vault.full_unwind();
+}
+
+#[test]
+#[should_panic(expected: 'Position already active')]
+fn test_double_deposit() {
+    let (vault_address, btc_token, _) = setup_simple();
+    let vault = IBitCoilDispatcher { contract_address: vault_address };
+
+    let amount: u256 = 100_000_000;
+    fund_user(btc_token, vault_address, amount * 2);
+
+    start_cheat_caller_address(vault_address, USER());
+    vault.deposit_and_loop(amount, 0);
+    vault.deposit_and_loop(amount, 0);
+}
+
+#[test]
+#[should_panic(expected: 'Exceeds max loops')]
+fn test_unwind_more_than_loop_count() {
+    let (vault_address, btc_token, _, _, _) = setup_full();
+    let vault = IBitCoilDispatcher { contract_address: vault_address };
+
+    let amount: u256 = 100_000_000;
+    fund_user(btc_token, vault_address, amount);
+
+    start_cheat_caller_address(vault_address, USER());
+    vault.deposit_and_loop(amount, 1);
+    stop_cheat_caller_address(vault_address);
+
+    // Try to unwind 2 loops when only 1 exists
+    start_cheat_caller_address(vault_address, USER());
+    vault.unwind(2);
+}
+
+// ==================== POSITION STATE INVARIANTS ====================
+
+#[test]
+fn test_position_cleared_after_full_unwind() {
+    let (vault_address, btc_token, _, _, _) = setup_full();
+    let vault = IBitCoilDispatcher { contract_address: vault_address };
+
+    let amount: u256 = 100_000_000;
+    fund_user(btc_token, vault_address, amount);
+
+    start_cheat_caller_address(vault_address, USER());
+    vault.deposit_and_loop(amount, 2);
+    stop_cheat_caller_address(vault_address);
+
+    start_cheat_caller_address(vault_address, USER());
+    vault.full_unwind();
+    stop_cheat_caller_address(vault_address);
+
+    let pos = vault.get_position(USER());
+    assert(!pos.is_active, 'Should be inactive');
+    assert(pos.deposited_amount == 0, 'Deposit should be 0');
+    assert(pos.total_collateral == 0, 'Collateral should be 0');
+    assert(pos.vesu_collateral == 0, 'Vesu should be 0');
+    assert(pos.total_debt == 0, 'Debt should be 0');
+    assert(pos.loop_count == 0, 'Loops should be 0');
+}
+
+#[test]
+fn test_can_deposit_again_after_full_unwind() {
+    let (vault_address, btc_token, _, _, _) = setup_full();
+    let vault = IBitCoilDispatcher { contract_address: vault_address };
+
+    let amount: u256 = 100_000_000;
+    fund_user(btc_token, vault_address, amount);
+
+    // First deposit + loop
+    start_cheat_caller_address(vault_address, USER());
+    vault.deposit_and_loop(amount, 1);
+    stop_cheat_caller_address(vault_address);
+
+    // Full unwind
+    start_cheat_caller_address(vault_address, USER());
+    vault.full_unwind();
+    stop_cheat_caller_address(vault_address);
+
+    // Should be able to deposit again
+    fund_user(btc_token, vault_address, amount);
+
+    start_cheat_caller_address(vault_address, USER());
+    vault.deposit_and_loop(amount, 1);
+    stop_cheat_caller_address(vault_address);
+
+    let pos = vault.get_position(USER());
+    assert(pos.is_active, 'Should be active again');
+    assert(pos.loop_count == 1, 'Should have 1 loop');
+}
+
+#[test]
+fn test_full_unwind_four_loops() {
+    let (vault_address, btc_token, _, _, _) = setup_full();
+    let vault = IBitCoilDispatcher { contract_address: vault_address };
+    let btc = IERC20Dispatcher { contract_address: btc_token };
+
+    let amount: u256 = 100_000_000;
+    fund_user(btc_token, vault_address, amount);
+
+    start_cheat_caller_address(vault_address, USER());
+    vault.deposit_and_loop(amount, 4);
+    stop_cheat_caller_address(vault_address);
+
+    let pos = vault.get_position(USER());
+    assert(pos.loop_count == 4, 'Should have 4 loops');
+
+    start_cheat_caller_address(vault_address, USER());
+    vault.full_unwind();
+    stop_cheat_caller_address(vault_address);
+
+    let pos_after = vault.get_position(USER());
+    assert(!pos_after.is_active, 'Should be inactive');
+    let user_btc = btc.balance_of(USER());
+    assert(user_btc == amount, 'Should get 1 BTC back');
 }

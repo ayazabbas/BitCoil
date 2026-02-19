@@ -222,6 +222,7 @@ pub mod BitCoil {
 
         fn set_max_slippage_bps(ref self: ContractState, bps: u256) {
             self.ownable.assert_only_owner();
+            assert(bps <= 1000, Errors::SLIPPAGE_EXCEEDED); // max 10%
             self.max_slippage_bps.write(bps);
             self.emit(SlippageUpdated { new_bps: bps });
         }
