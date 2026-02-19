@@ -4,6 +4,7 @@ use starknet::ContractAddress;
 pub struct Position {
     pub deposited_amount: u256,
     pub total_collateral: u256,
+    pub vesu_collateral: u256,
     pub total_debt: u256,
     pub loop_count: u8,
     pub is_active: bool,
@@ -60,6 +61,11 @@ pub struct MinHealthFactorUpdated {
 #[derive(Drop, starknet::Event)]
 pub struct BtcPriceUpdated {
     pub new_price: u256,
+}
+
+#[derive(Drop, starknet::Event)]
+pub struct SlippageUpdated {
+    pub new_bps: u256,
 }
 
 pub mod Errors {

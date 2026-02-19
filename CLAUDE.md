@@ -97,7 +97,7 @@ tests/
 ### Phase 5 — Unwind + Safety
 - [x] unwind() — reverse the loop
 - [x] full_unwind() — complete position closure
-- [ ] Pyth Oracle integration for health factor (using stored price for now)
+- [x] Pyth Oracle integration for health factor (refresh_btc_price via Pyth)
 - [x] Safety: max loops, min health factor, pause
 - [x] Events for all state changes
 - [x] Edge case tests
@@ -107,9 +107,9 @@ tests/
 - [ ] Integration test against live/mock contracts
 
 ### Phase 7 — Testing + Hardening
-- [ ] Edge cases, fuzz testing
-- [ ] Security review
-- [ ] Gas benchmarking
+- [x] Edge cases, fuzz testing
+- [x] Security review
+- [x] Gas benchmarking
 
 ### Phase 8 — Frontend (Stretch)
 - [ ] Next.js + starknet-react UI

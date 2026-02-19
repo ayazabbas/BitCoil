@@ -1,5 +1,6 @@
 pub mod vault;
 pub mod types;
+pub mod utils;
 pub mod interfaces {
     pub mod i_vault;
     pub mod i_vesu;

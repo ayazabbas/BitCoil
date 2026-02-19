@@ -8,7 +8,7 @@ pub mod BitCoil {
 
     use bitcoil::types::{
         Position, Errors, Deposited, LoopExecuted, Unwound, FullyUnwound, Paused, Unpaused,
-        MaxLoopsUpdated, MinHealthFactorUpdated, BtcPriceUpdated,
+        MaxLoopsUpdated, MinHealthFactorUpdated, BtcPriceUpdated, SlippageUpdated,
     };
     use bitcoil::interfaces::i_erc20::{IERC20Dispatcher, IERC20DispatcherTrait};
     use bitcoil::interfaces::i_vesu::{
@@ -18,6 +18,7 @@ pub mod BitCoil {
     use bitcoil::interfaces::i_ekubo::{
         IEkuboRouterDispatcher, IEkuboRouterDispatcherTrait, RouteNode, PoolKey, TokenAmount, i129,
     };
+    use bitcoil::interfaces::i_pyth::{IPythDispatcher, IPythDispatcherTrait};
 
     component!(path: OwnableComponent, storage: ownable, event: OwnableEvent);
 
@@ -61,6 +62,7 @@ pub mod BitCoil {
         MaxLoopsUpdated: MaxLoopsUpdated,
         MinHealthFactorUpdated: MinHealthFactorUpdated,
         BtcPriceUpdated: BtcPriceUpdated,
+        SlippageUpdated: SlippageUpdated,
     }
 
     #[constructor]
@@ -113,6 +115,7 @@ pub mod BitCoil {
             let new_position = Position {
                 deposited_amount: amount,
                 total_collateral: amount,
+                vesu_collateral: 0,
                 total_debt: 0,
                 loop_count: 0,
                 is_active: true,
@@ -154,11 +157,8 @@ pub mod BitCoil {
 
             if had_loops {
                 // After unwind: vault has some BTC, Vesu has remaining collateral
-                // Vesu collateral = total_collateral - vault_btc_balance
-                let vault_btc = btc.balance_of(this);
-                if position.total_collateral > vault_btc {
-                    let vesu_remaining = position.total_collateral - vault_btc;
-                    self.withdraw_from_vesu(vesu_remaining);
+                if position.vesu_collateral > 0 {
+                    self.withdraw_from_vesu(position.vesu_collateral);
                 }
             }
 
@@ -172,6 +172,7 @@ pub mod BitCoil {
             self.positions.entry(caller).write(Position {
                 deposited_amount: 0,
                 total_collateral: 0,
+                vesu_collateral: 0,
                 total_debt: 0,
                 loop_count: 0,
                 is_active: false,
@@ -219,6 +220,33 @@ pub mod BitCoil {
             self.emit(BtcPriceUpdated { new_price: price });
         }
 
+        fn set_max_slippage_bps(ref self: ContractState, bps: u256) {
+            self.ownable.assert_only_owner();
+            self.max_slippage_bps.write(bps);
+            self.emit(SlippageUpdated { new_bps: bps });
+        }
+
+        fn refresh_btc_price(ref self: ContractState) {
+            self.ownable.assert_only_owner();
+            let pyth = IPythDispatcher {
+                contract_address: self.pyth_oracle.read(),
+            };
+            let feed_id = self.btc_usd_feed_id.read();
+            let price = pyth.get_price_no_older_than(feed_id, 60);
+            // Pyth price has expo (e.g., -8). Convert to USDC 6-decimal scale.
+            // BTC/USD price in Pyth: price.price * 10^expo
+            // We need USDC units (6 decimals), so: price * 10^(6 + expo)
+            // For expo=-8: price * 10^(6-8) = price / 100
+            let abs_price: u256 = price.price.mag.into();
+            // expo is typically -8 for BTC/USD
+            // USDC has 6 decimals, BTC has 8 decimals
+            // btc_price = how many USDC (6 dec) per 1 BTC (8 dec satoshis)
+            // = abs_price * 10^(6) / 10^(-expo) = abs_price * 10^(6-8) = abs_price / 100
+            let btc_price = abs_price / 100;
+            self.btc_price.write(btc_price);
+            self.emit(BtcPriceUpdated { new_price: btc_price });
+        }
+
         fn pause(ref self: ContractState) {
             self.ownable.assert_only_owner();
             self.paused.write(true);
@@ -264,6 +292,7 @@ pub mod BitCoil {
                 let new_position = Position {
                     deposited_amount: position.deposited_amount,
                     total_collateral: position.total_collateral + btc_received,
+                    vesu_collateral: position.vesu_collateral + collateral_to_deposit,
                     total_debt: position.total_debt + borrow_amount,
                     loop_count: position.loop_count + 1,
                     is_active: true,
@@ -334,6 +363,7 @@ pub mod BitCoil {
                 let new_position = Position {
                     deposited_amount: position.deposited_amount,
                     total_collateral: position.total_collateral - btc_to_sell,
+                    vesu_collateral: position.vesu_collateral - btc_to_sell,
                     total_debt: position.total_debt - repay_amount,
                     loop_count: position.loop_count - 1,
                     is_active: position.loop_count > 1,
