@@ -6,7 +6,10 @@ pub mod BitCoil {
     };
     use openzeppelin_access::ownable::OwnableComponent;
 
-    use bitcoil::types::{Position, Errors, Deposited, LoopExecuted, Unwound, FullyUnwound};
+    use bitcoil::types::{
+        Position, Errors, Deposited, LoopExecuted, Unwound, FullyUnwound, Paused, Unpaused,
+        MaxLoopsUpdated, MinHealthFactorUpdated, BtcPriceUpdated,
+    };
     use bitcoil::interfaces::i_erc20::{IERC20Dispatcher, IERC20DispatcherTrait};
     use bitcoil::interfaces::i_vesu::{
         IVesuSingletonDispatcher, IVesuSingletonDispatcherTrait, ModifyPositionParams, Amount,
@@ -40,6 +43,8 @@ pub mod BitCoil {
         // BTC price in stable token units (e.g., 100_000_000_000 = $100k with 6 USDC decimals)
         // Will be replaced with oracle reads in Phase 5
         btc_price: u256,
+        // Max slippage in basis points (e.g., 100 = 1%)
+        max_slippage_bps: u256,
     }
 
     #[event]
@@ -51,6 +56,11 @@ pub mod BitCoil {
         LoopExecuted: LoopExecuted,
         Unwound: Unwound,
         FullyUnwound: FullyUnwound,
+        Paused: Paused,
+        Unpaused: Unpaused,
+        MaxLoopsUpdated: MaxLoopsUpdated,
+        MinHealthFactorUpdated: MinHealthFactorUpdated,
+        BtcPriceUpdated: BtcPriceUpdated,
     }
 
     #[constructor]
@@ -78,6 +88,8 @@ pub mod BitCoil {
         self.max_loops.write(4);
         // 115 = 1.15 scaled by 100
         self.min_health_factor.write(115);
+        // 100 bps = 1% default slippage
+        self.max_slippage_bps.write(100);
         self.paused.write(false);
     }
 
@@ -131,20 +143,29 @@ pub mod BitCoil {
             let position = self.positions.entry(caller).read();
             assert(position.is_active, Errors::NOT_ACTIVE);
 
-            let loops = position.loop_count;
-            if loops > 0 {
-                self.execute_unwind(caller, loops);
+            let had_loops = position.loop_count > 0;
+            if had_loops {
+                self.execute_unwind(caller, position.loop_count);
             }
 
-            // Withdraw remaining collateral back to user
-            let position = self.positions.entry(caller).read();
             let btc = IERC20Dispatcher { contract_address: self.btc_token.read() };
-            let remaining = position.total_collateral;
+            let this = get_contract_address();
+            let position = self.positions.entry(caller).read();
 
-            if remaining > 0 {
-                // Withdraw from Vesu
-                self.withdraw_from_vesu(remaining);
-                btc.transfer(caller, remaining);
+            if had_loops {
+                // After unwind: vault has some BTC, Vesu has remaining collateral
+                // Vesu collateral = total_collateral - vault_btc_balance
+                let vault_btc = btc.balance_of(this);
+                if position.total_collateral > vault_btc {
+                    let vesu_remaining = position.total_collateral - vault_btc;
+                    self.withdraw_from_vesu(vesu_remaining);
+                }
+            }
+
+            // Return all vault BTC to user
+            let vault_btc_balance = btc.balance_of(this);
+            if vault_btc_balance > 0 {
+                btc.transfer(caller, vault_btc_balance);
             }
 
             // Clear position
@@ -156,7 +177,7 @@ pub mod BitCoil {
                 is_active: false,
             });
 
-            self.emit(FullyUnwound { user: caller, total_returned: remaining });
+            self.emit(FullyUnwound { user: caller, total_returned: vault_btc_balance });
         }
 
         fn get_position(self: @ContractState, user: ContractAddress) -> Position {
@@ -183,26 +204,31 @@ pub mod BitCoil {
         fn set_max_loops(ref self: ContractState, max: u8) {
             self.ownable.assert_only_owner();
             self.max_loops.write(max);
+            self.emit(MaxLoopsUpdated { new_max: max });
         }
 
         fn set_min_health_factor(ref self: ContractState, factor: u256) {
             self.ownable.assert_only_owner();
             self.min_health_factor.write(factor);
+            self.emit(MinHealthFactorUpdated { new_factor: factor });
         }
 
         fn set_btc_price(ref self: ContractState, price: u256) {
             self.ownable.assert_only_owner();
             self.btc_price.write(price);
+            self.emit(BtcPriceUpdated { new_price: price });
         }
 
         fn pause(ref self: ContractState) {
             self.ownable.assert_only_owner();
             self.paused.write(true);
+            self.emit(Paused {});
         }
 
         fn unpause(ref self: ContractState) {
             self.ownable.assert_only_owner();
             self.paused.write(false);
+            self.emit(Unpaused {});
         }
     }
 
@@ -254,6 +280,12 @@ pub mod BitCoil {
                         },
                     );
 
+                // Check health factor after this loop
+                let updated_position = self.positions.entry(user).read();
+                let hf = self.calculate_health_factor(updated_position);
+                let min_hf = self.min_health_factor.read();
+                assert(hf >= min_hf, Errors::HEALTH_TOO_LOW);
+
                 // Next iteration deposits the newly received BTC
                 collateral_to_deposit = btc_received;
                 i += 1;
@@ -265,30 +297,44 @@ pub mod BitCoil {
             let mut total_debt_repaid: u256 = 0;
             let mut i: u8 = 0;
 
+            let btc = IERC20Dispatcher { contract_address: self.btc_token.read() };
+            let this = get_contract_address();
+
             while i < loops_to_unwind {
                 let position = self.positions.entry(user).read();
 
-                // Calculate how much to unwind per loop
+                // The vault holds BTC from the last swap. Use it to repay debt.
+                let vault_btc = btc.balance_of(this);
                 let debt_per_loop = position.total_debt / position.loop_count.into();
-                let collateral_per_loop = position.total_collateral
-                    / (position.loop_count + 1).into();
 
-                // Step 1: Swap BTC → USDC to repay debt
-                let _usdc_received = self.swap_btc_to_stable(collateral_per_loop);
+                // Step 1: Swap vault's BTC → USDC to repay debt
+                let btc_price = self.btc_price.read();
+                let btc_needed = (debt_per_loop * 100_000_000) / btc_price;
+                let btc_to_sell = if btc_needed < vault_btc {
+                    btc_needed
+                } else {
+                    vault_btc
+                };
+                let usdc_received = self.swap_btc_to_stable(btc_to_sell);
 
                 // Step 2: Repay debt to Vesu
-                self.repay_to_vesu(debt_per_loop);
+                let repay_amount = if usdc_received < debt_per_loop {
+                    usdc_received
+                } else {
+                    debt_per_loop
+                };
+                self.repay_to_vesu(repay_amount);
 
-                // Step 3: Withdraw collateral from Vesu
-                self.withdraw_from_vesu(collateral_per_loop);
+                // Step 3: Withdraw collateral from Vesu (equal to what we just sold)
+                self.withdraw_from_vesu(btc_to_sell);
 
-                total_collateral_withdrawn += collateral_per_loop;
-                total_debt_repaid += debt_per_loop;
+                total_collateral_withdrawn += btc_to_sell;
+                total_debt_repaid += repay_amount;
 
                 let new_position = Position {
                     deposited_amount: position.deposited_amount,
-                    total_collateral: position.total_collateral - collateral_per_loop,
-                    total_debt: position.total_debt - debt_per_loop,
+                    total_collateral: position.total_collateral - btc_to_sell,
+                    total_debt: position.total_debt - repay_amount,
                     loop_count: position.loop_count - 1,
                     is_active: position.loop_count > 1,
                 };
@@ -455,6 +501,14 @@ pub mod BitCoil {
             let results = router.multihop_swap(route, token_amount);
             let result = results.at(0);
             let btc_received: u256 = (*result.amount.mag).into();
+
+            // Slippage check: expected BTC = usdc_amount / btc_price * 1e8
+            let btc_price = self.btc_price.read();
+            let expected_btc = (usdc_amount * 100_000_000) / btc_price;
+            let max_slippage = self.max_slippage_bps.read();
+            let min_btc = (expected_btc * (10000 - max_slippage)) / 10000;
+            assert(btc_received >= min_btc, Errors::SLIPPAGE_EXCEEDED);
+
             btc_received
         }
 
@@ -489,6 +543,14 @@ pub mod BitCoil {
             let results = router.multihop_swap(route, token_amount);
             let result = results.at(0);
             let stable_received: u256 = (*result.amount.mag).into();
+
+            // Slippage check: expected USDC = btc_amount * btc_price / 1e8
+            let btc_price = self.btc_price.read();
+            let expected_stable = (btc_amount * btc_price) / 100_000_000;
+            let max_slippage = self.max_slippage_bps.read();
+            let min_stable = (expected_stable * (10000 - max_slippage)) / 10000;
+            assert(stable_received >= min_stable, Errors::SLIPPAGE_EXCEEDED);
+
             stable_received
         }
 

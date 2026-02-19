@@ -91,16 +91,16 @@ tests/
 - [x] Implement swap_stable_to_btc() via Ekubo
 - [x] Full loop: deposit → borrow → swap → re-deposit
 - [x] Multi-loop logic (N iterations)
-- [ ] Slippage protection
+- [x] Slippage protection
 - [x] Tests for full loop
 
 ### Phase 5 — Unwind + Safety
-- [ ] unwind() — reverse the loop
-- [ ] full_unwind() — complete position closure
-- [ ] Pyth Oracle integration for health factor
-- [ ] Safety: max loops, min health factor, pause
-- [ ] Events for all state changes
-- [ ] Edge case tests
+- [x] unwind() — reverse the loop
+- [x] full_unwind() — complete position closure
+- [ ] Pyth Oracle integration for health factor (using stored price for now)
+- [x] Safety: max loops, min health factor, pause
+- [x] Events for all state changes
+- [x] Edge case tests
 
 ### Phase 6 — Testnet Deployment
 - [ ] Deploy to Starknet Sepolia

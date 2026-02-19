@@ -41,6 +41,27 @@ pub struct FullyUnwound {
     pub total_returned: u256,
 }
 
+#[derive(Drop, starknet::Event)]
+pub struct Paused {}
+
+#[derive(Drop, starknet::Event)]
+pub struct Unpaused {}
+
+#[derive(Drop, starknet::Event)]
+pub struct MaxLoopsUpdated {
+    pub new_max: u8,
+}
+
+#[derive(Drop, starknet::Event)]
+pub struct MinHealthFactorUpdated {
+    pub new_factor: u256,
+}
+
+#[derive(Drop, starknet::Event)]
+pub struct BtcPriceUpdated {
+    pub new_price: u256,
+}
+
 pub mod Errors {
     pub const ZERO_AMOUNT: felt252 = 'Amount cannot be zero';
     pub const NOT_ACTIVE: felt252 = 'No active position';
