@@ -321,52 +321,59 @@ pub mod BitCoil {
             };
         }
 
+        /// Unwind loops by selling vault-held BTC, repaying debt, withdrawing from Vesu.
+        ///
+        /// Per iteration:
+        /// 1. Swap vault BTC (total_collateral - vesu_collateral) -> USDC
+        /// 2. Repay debt
+        /// 3. Withdraw from Vesu the collateral deposited for this loop (= vault_btc * 100/65)
+        /// 4. Withdrawn BTC becomes vault BTC for next iteration
         fn execute_unwind(ref self: ContractState, user: ContractAddress, loops_to_unwind: u8) {
-            let mut total_collateral_withdrawn: u256 = 0;
+            let mut total_collateral_freed: u256 = 0;
             let mut total_debt_repaid: u256 = 0;
             let mut i: u8 = 0;
-
-            let btc = IERC20Dispatcher { contract_address: self.btc_token.read() };
-            let this = get_contract_address();
 
             while i < loops_to_unwind {
                 let position = self.positions.entry(user).read();
 
-                // The vault holds BTC from the last swap. Use it to repay debt.
-                let vault_btc = btc.balance_of(this);
-                let debt_per_loop = position.total_debt / position.loop_count.into();
+                // BTC sitting in vault (not in Vesu)
+                let vault_btc = position.total_collateral - position.vesu_collateral;
 
-                // Step 1: Swap vault's BTC → USDC to repay debt
-                let btc_price = self.btc_price.read();
-                let btc_needed = (debt_per_loop * 100_000_000) / btc_price;
-                let btc_to_sell = if btc_needed < vault_btc {
-                    btc_needed
-                } else {
-                    vault_btc
-                };
-                let usdc_received = self.swap_btc_to_stable(btc_to_sell);
+                // Step 1: Swap vault BTC -> USDC to repay debt
+                let usdc_received = self.swap_btc_to_stable(vault_btc);
 
-                // Step 2: Repay debt to Vesu
-                let repay_amount = if usdc_received < debt_per_loop {
+                // Step 2: Repay debt (cap at remaining debt)
+                let repay_amount = if usdc_received < position.total_debt {
                     usdc_received
                 } else {
-                    debt_per_loop
+                    position.total_debt
                 };
                 self.repay_to_vesu(repay_amount);
 
-                // Step 3: Withdraw collateral from Vesu (equal to what we just sold)
-                self.withdraw_from_vesu(btc_to_sell);
+                // Step 3: Withdraw from Vesu the collateral deposited for this loop
+                // The deposit for this loop = vault_btc * 100 / 65 (inverse of 65% LTV)
+                // Cap at vesu_collateral to prevent underflow
+                let vesu_withdraw_calc = (vault_btc * 100) / 65;
+                let vesu_withdraw = if vesu_withdraw_calc < position.vesu_collateral {
+                    vesu_withdraw_calc
+                } else {
+                    position.vesu_collateral
+                };
+                self.withdraw_from_vesu(vesu_withdraw);
 
-                total_collateral_withdrawn += btc_to_sell;
+                total_collateral_freed += vault_btc;
                 total_debt_repaid += repay_amount;
 
+                // Update position:
+                // - total_collateral decreases by vault_btc (sold for USDC)
+                // - vesu_collateral decreases by vesu_withdraw (now in vault)
                 let new_position = Position {
                     deposited_amount: position.deposited_amount,
-                    total_collateral: position.total_collateral - btc_to_sell,
-                    vesu_collateral: position.vesu_collateral - btc_to_sell,
+                    total_collateral: position.total_collateral - vault_btc,
+                    vesu_collateral: position.vesu_collateral - vesu_withdraw,
                     total_debt: position.total_debt - repay_amount,
                     loop_count: position.loop_count - 1,
-                    is_active: position.loop_count > 1,
+                    is_active: true,
                 };
                 self.positions.entry(user).write(new_position);
 
@@ -378,7 +385,7 @@ pub mod BitCoil {
                     Unwound {
                         user,
                         loops_unwound: loops_to_unwind,
-                        collateral_withdrawn: total_collateral_withdrawn,
+                        collateral_withdrawn: total_collateral_freed,
                         debt_repaid: total_debt_repaid,
                     },
                 );
