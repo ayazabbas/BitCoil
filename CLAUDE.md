@@ -68,11 +68,11 @@ tests/
 ## Phase Progress
 
 ### Phase 1 — Setup + Cairo Basics
-- [ ] Install Starknet toolchain (starkup)
-- [ ] `scarb new bitcoil --test-runner=starknet-foundry`
-- [ ] Configure Scarb.toml with dependencies
-- [ ] Write hello world contract, verify snforge test passes
-- [ ] Study Vesu V2 and Ekubo interfaces
+- [x] Install Starknet toolchain (starkup)
+- [x] `scarb new bitcoil --test-runner=starknet-foundry`
+- [x] Configure Scarb.toml with dependencies
+- [x] Write hello world contract, verify snforge test passes
+- [x] Study Vesu V2 and Ekubo interfaces
 
 ### Phase 2 — Interfaces + Types
 - [ ] Define interface traits (IBitCoil, IVesuSingleton, IFlashloanReceiver, IEkuboRouter, IERC20)
