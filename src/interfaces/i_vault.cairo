@@ -16,6 +16,7 @@ pub trait IBitCoil<TContractState> {
     // Admin functions
     fn set_max_loops(ref self: TContractState, max: u8);
     fn set_min_health_factor(ref self: TContractState, factor: u256);
+    fn set_btc_price(ref self: TContractState, price: u256);
     fn pause(ref self: TContractState);
     fn unpause(ref self: TContractState);
 }

@@ -8,3 +8,5 @@ pub mod interfaces {
     pub mod i_erc20;
 }
 pub mod mock_erc20;
+pub mod mock_lending;
+pub mod mock_dex;

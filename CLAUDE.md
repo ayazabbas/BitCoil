@@ -75,24 +75,24 @@ tests/
 - [x] Study Vesu V2 and Ekubo interfaces
 
 ### Phase 2 — Interfaces + Types
-- [ ] Define interface traits (IBitCoil, IVesuSingleton, IFlashloanReceiver, IEkuboRouter, IERC20)
-- [ ] Define Position struct, error types, events
-- [ ] Write mock contracts (MockERC20, MockLending, MockDEX)
-- [ ] Implement basic vault storage + deposit()
-- [ ] Unit tests for deposit
+- [x] Define interface traits (IBitCoil, IVesuSingleton, IFlashloanReceiver, IEkuboRouter, IERC20)
+- [x] Define Position struct, error types, events
+- [x] Write mock contracts (MockERC20, MockLending, MockDEX)
+- [x] Implement basic vault storage + deposit()
+- [x] Unit tests for deposit
 
 ### Phase 3 — Vesu Lending Integration
-- [ ] Implement lending_deposit() — vault deposits to Vesu
-- [ ] Implement lending_borrow() — vault borrows USDC
-- [ ] Single loop: deposit BTC → borrow USDC
-- [ ] Tests with mock lending
+- [x] Implement lending_deposit() — vault deposits to Vesu
+- [x] Implement lending_borrow() — vault borrows USDC
+- [x] Single loop: deposit BTC → borrow USDC
+- [x] Tests with mock lending
 
 ### Phase 4 — Swap Integration + Multi-Loop
-- [ ] Implement swap_stable_to_btc() via Ekubo
-- [ ] Full loop: deposit → borrow → swap → re-deposit
-- [ ] Multi-loop logic (N iterations)
+- [x] Implement swap_stable_to_btc() via Ekubo
+- [x] Full loop: deposit → borrow → swap → re-deposit
+- [x] Multi-loop logic (N iterations)
 - [ ] Slippage protection
-- [ ] Tests for full loop
+- [x] Tests for full loop
 
 ### Phase 5 — Unwind + Safety
 - [ ] unwind() — reverse the loop
