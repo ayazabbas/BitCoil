@@ -117,7 +117,7 @@ tests/
 
 ### Phase 9 — Submission
 - [ ] Demo video (3 min)
-- [ ] Final README
+- [x] Final README
 - [ ] Submit to DoraHacks
 
 ## Reference

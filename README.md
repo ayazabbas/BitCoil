@@ -146,8 +146,20 @@ scarb build
 ### Test
 
 ```bash
-snforge test
+snforge test        # Run all 44 tests
+snforge test vault  # Run vault integration tests only
+snforge test math   # Run leverage math tests only
+snforge test security  # Run security tests only
 ```
+
+**44 tests** covering:
+- Deposit, loop, unwind, full unwind flows
+- Leverage calculation accuracy (1-4 loops)
+- Health factor monitoring
+- Access control (owner-only admin functions)
+- Pause/unpause emergency controls
+- Slippage protection
+- Edge cases (zero amounts, double deposits, insufficient balance/allowance)
 
 ### Deploy (Sepolia Testnet)
 
@@ -200,19 +212,24 @@ sncast --account deployer deploy \
 ```
 src/
   lib.cairo              # Module declarations
-  vault.cairo            # BitCoil contract (core)
+  vault.cairo            # BitCoil contract (core logic)
+  types.cairo            # Position struct, events, errors
+  utils.cairo            # Leverage math helpers
   interfaces/
     i_vault.cairo        # IBitCoil trait
     i_vesu.cairo         # IVesuSingleton trait
     i_ekubo.cairo        # IEkuboRouter trait
-    i_pyth.cairo         # IPythOracle trait
+    i_pyth.cairo         # IPyth trait
     i_erc20.cairo        # IERC20 trait
-  types.cairo            # Position struct, enums
-  utils.cairo            # Leverage math helpers
+  mock_erc20.cairo       # Mock ERC20 for testing
+  mock_lending.cairo     # Mock Vesu for testing
+  mock_dex.cairo         # Mock Ekubo for testing
 tests/
-  test_vault.cairo       # Integration tests
-  test_leverage_math.cairo
-  mocks/                 # Mock contracts for testing
+  test_vault.cairo       # Integration tests (22 tests)
+  test_leverage_math.cairo  # Math unit tests (12 tests)
+  test_security.cairo    # Security & access control (10 tests)
+scripts/
+  deploy_sepolia.sh      # Testnet deployment script
 ```
 
 ---
