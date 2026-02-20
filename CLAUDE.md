@@ -31,7 +31,17 @@ Users deposit wrapped BTC → vault loops through Vesu (lend/borrow) + Ekubo (sw
 - MockLending: `0x114633a3b13b5e803f429ea1746320b08f5bee9da39d56b610e90dba23a8896`
 - MockDEX: `0x261360bfe3b011332fd6a8f89a1040c9259211e594e1e02f500b7ecf61b1109`
 
-## Key Addresses (Sepolia)
+## Sepolia Deployment (LIVE)
+- **BitCoil Vault:** `0x01cb757dbf5e32fb7c2ee34b4bd1419ba9ffd350fcb857816b538cfbd25d09df`
+- **MockERC20 WBTC:** `0x03d2d697e74d7fb157a3fe248e0e2a898a3f264733bf1ee1a5567bf8e6c86d3a`
+- **MockERC20 USDC:** `0x04723e284d20811ee9d2d1542b440c39524010c43345a4804910ea8b68651b25`
+- **MockLending (Vesu):** `0x074924bb0dd4115a3c321aae14fb2bbd0f026b91ce74f3b569389ce365293c57`
+- **MockDEX (Ekubo):** `0x064552dca2aca92eeffd5c37694f03bf773ebabaa8b75c6ef414b7189eda7265`
+- **Deployer/Owner:** `0x03b55e8bdead926d57cd3c2bb69cfac4b0149ea1ba243e0fecf2e3b1f9a18c5d`
+- **Pyth Oracle:** `0x07f2b07b6b5365e7ee055bda4c0ecabd867e6d3ee298d73aea32b027667186d6`
+- Starkscan: https://sepolia.starkscan.co/contract/0x01cb757dbf5e32fb7c2ee34b4bd1419ba9ffd350fcb857816b538cfbd25d09df
+
+## Key Addresses (Sepolia — reference)
 - Pyth: `0x07f2b07b6b5365e7ee055bda4c0ecabd867e6d3ee298d73aea32b027667186d6`
 - BTC/USD Feed: `0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43`
 - WBTC: `0x00452bd5c0512a61df7c7be8cfea5e4f893cb40e126bdc40aee6054db955129e`
@@ -122,7 +132,7 @@ tests/
 - [x] Deploy BitCoil with full constructor args
 - [x] Verify deployment (get_position, get_health_factor, owner calls pass)
 - [x] Write deployment scripts (scripts/deploy_devnet.sh, scripts/deploy_sepolia.sh)
-- [ ] Deploy to Starknet Sepolia (requires manual faucet funding)
+- [x] Deploy to Starknet Sepolia (all contracts live, owner() verified)
 
 ### Phase 7 — Testing + Hardening
 - [x] Edge cases, fuzz testing

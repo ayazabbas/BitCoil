@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-ACCOUNT="bitcoil"
+ACCOUNT="bitcoil-deploy"
 NETWORK_FLAG="--network sepolia"
 
 # Sepolia addresses (real contracts)
