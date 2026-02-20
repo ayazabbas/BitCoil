@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useAccount, useConnect, useDisconnect } from "@starknet-react/core";
 import { Button } from "@/components/ui/button";
 import { shortenAddress } from "@/lib/format";
@@ -14,14 +15,14 @@ export function Header() {
     <header className="fixed top-0 left-0 right-0 z-40 border-b border-white/[0.06] bg-background/80 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         {/* Logo */}
-        <a href="/" className="flex items-center gap-2 group">
+        <Link href="/" className="flex items-center gap-2 group">
           <div className="relative flex h-8 w-8 items-center justify-center rounded-lg bg-[#F7931A]/10 border border-[#F7931A]/20 group-hover:bg-[#F7931A]/20 transition-colors">
             <Zap className="h-4 w-4 text-[#F7931A]" />
           </div>
           <span className="text-lg font-bold tracking-tight">
             Bit<span className="text-[#F7931A]">Coil</span>
           </span>
-        </a>
+        </Link>
 
         {/* Nav */}
         <nav className="hidden items-center gap-8 md:flex">

@@ -10,42 +10,38 @@ interface AnimatedNumberProps {
 export function AnimatedNumber({ value, duration = 600 }: AnimatedNumberProps) {
   const [displayValue, setDisplayValue] = useState(value);
   const prevValue = useRef(value);
+  const rafRef = useRef<number>(0);
 
   useEffect(() => {
     if (prevValue.current === value) return;
 
     const start = parseFloat(prevValue.current) || 0;
     const end = parseFloat(value) || 0;
+    prevValue.current = value;
+
+    if (start === end) return;
+
+    const decimalPlaces = value.includes(".") ? value.split(".")[1].length : 0;
     const startTime = performance.now();
 
-    if (start === end) {
-      setDisplayValue(value);
-      prevValue.current = value;
-      return;
-    }
-
-    // Get the decimal places from the target value
-    const decimalPlaces = value.includes(".") ? value.split(".")[1].length : 0;
-
-    function animate(currentTime: number) {
+    function step(currentTime: number) {
       const elapsed = currentTime - startTime;
       const progress = Math.min(elapsed / duration, 1);
-
-      // Ease out cubic
       const eased = 1 - Math.pow(1 - progress, 3);
       const current = start + (end - start) * eased;
 
       setDisplayValue(current.toFixed(decimalPlaces));
 
       if (progress < 1) {
-        requestAnimationFrame(animate);
-      } else {
-        setDisplayValue(value);
+        rafRef.current = requestAnimationFrame(step);
       }
     }
 
-    requestAnimationFrame(animate);
-    prevValue.current = value;
+    rafRef.current = requestAnimationFrame(step);
+
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
   }, [value, duration]);
 
   return <span className="animate-count tabular-nums">{displayValue}</span>;
