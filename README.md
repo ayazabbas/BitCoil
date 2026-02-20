@@ -152,7 +152,7 @@ snforge test math   # Run leverage math tests only
 snforge test security  # Run security tests only
 ```
 
-**44 tests** covering:
+**55 tests** covering:
 - Deposit, loop, unwind, full unwind flows
 - Leverage calculation accuracy (1-4 loops)
 - Health factor monitoring
@@ -161,33 +161,53 @@ snforge test security  # Run security tests only
 - Slippage protection
 - Edge cases (zero amounts, double deposits, insufficient balance/allowance)
 
+### Deploy (Local Devnet)
+
+```bash
+# Install starknet-devnet
+# See: https://github.com/0xSpaceShard/starknet-devnet
+
+# Start devnet
+starknet-devnet --port 5050 --seed 42
+
+# Run full deployment (declares + deploys all contracts)
+./scripts/deploy_devnet.sh
+```
+
 ### Deploy (Sepolia Testnet)
 
 ```bash
-# Create and fund account
-sncast account create --name deployer --network sepolia
-# Fund via https://starknet-faucet.vercel.app/
-sncast account deploy --name deployer --network sepolia
+# 1. Create account
+sncast account create --name bitcoil --network sepolia
 
-# Declare contract class
-sncast --account deployer declare --contract-name BitCoil --network sepolia
+# 2. Fund via faucet: https://starknet-faucet.vercel.app/
 
-# Deploy instance
-sncast --account deployer deploy \
-  --class-hash <CLASS_HASH> \
-  --constructor-calldata <VESU_ADDR> <EKUBO_ADDR> <PYTH_ADDR> <WBTC_ADDR> <USDC_ADDR> <POOL_ID> \
-  --network sepolia
+# 3. Deploy account
+sncast account deploy --name bitcoil --network sepolia
+
+# 4. Run full deployment (mocks + BitCoil)
+./scripts/deploy_sepolia.sh
 ```
 
 ---
 
 ## Contract Addresses
 
+### Devnet Deployment (starknet-devnet, seed 42)
+
+| Contract | Address |
+|----------|---------|
+| BitCoil Vault | `0x06db1433c69b83b21fbb343142ea4178c144ae9da0e8f9e0ce9f8aca0ca5c40f` |
+| MockERC20 (WBTC) | `0x07a2faa6843b61fd5e4ef1b3f2b335a77a73cf665bc5584a477fd7e022402f9d` |
+| MockERC20 (USDC) | `0x05d6707d4baa5558a4d7732868a1cbe4fca6161d1643113ca34f4d03d7078af0` |
+| MockLending (Vesu) | `0x053ceca66a5738fe217071c439afdcab1168806f58a16ff6e037d3f1a08dd4fd` |
+| MockDEX (Ekubo) | `0x0341972f9515b023c28dcaed753e34af570e45871726a06caf0c93c3ce0d95c1` |
+
 ### Sepolia Testnet
 
 | Contract | Address |
 |----------|---------|
-| BitCoil | TBD |
+| BitCoil | Pending (run `./scripts/deploy_sepolia.sh`) |
 
 ### Mainnet
 
@@ -229,7 +249,8 @@ tests/
   test_leverage_math.cairo  # Math unit tests (12 tests)
   test_security.cairo    # Security & access control (10 tests)
 scripts/
-  deploy_sepolia.sh      # Testnet deployment script
+  deploy_devnet.sh       # Local devnet deployment
+  deploy_sepolia.sh      # Sepolia testnet deployment
 ```
 
 ---

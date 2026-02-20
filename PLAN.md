@@ -475,12 +475,15 @@ casm = true
 - **Milestone:** Full loop + unwind cycle, safety mechanisms, all tests pass
 
 ### Phase 6 — Testnet Deployment
-- [ ] Create Starknet Sepolia account, fund from faucet
-- [ ] Declare + deploy vault contract to Sepolia
-- [ ] If Vesu is on Sepolia: test against real Vesu testnet
-- [ ] If NOT: deploy mock contracts, test full flow on Sepolia
-- [ ] Fix integration issues
-- **Milestone:** Working deployment on Sepolia
+- [x] Install starknet-devnet v0.7.2 for local testing
+- [x] Create and configure deployment accounts (devnet + Sepolia)
+- [x] Declare all contracts (BitCoil, MockERC20, MockLending, MockDEX)
+- [x] Deploy mock contracts (WBTC, USDC, MockLending, MockDEX) on devnet
+- [x] Deploy BitCoil vault with full constructor args on devnet
+- [x] Verify deployment: get_position, get_health_factor, owner calls pass
+- [x] Write deployment scripts: scripts/deploy_devnet.sh, scripts/deploy_sepolia.sh
+- [ ] Deploy to Sepolia (requires manual faucet funding at https://starknet-faucet.vercel.app/)
+- **Milestone:** Working deployment on devnet, deployment scripts ready for Sepolia
 
 ### Phase 7 — Testing + Hardening
 - [ ] Edge case testing (max leverage, zero amounts, insufficient balance)

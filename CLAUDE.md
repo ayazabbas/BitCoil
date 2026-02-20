@@ -17,6 +17,20 @@ Users deposit wrapped BTC → vault loops through Vesu (lend/borrow) + Ekubo (sw
 - **DEX:** Ekubo Router V3
 - **Frontend:** Next.js + starknet-react (stretch goal)
 
+## Devnet Deployment (starknet-devnet, seed 42)
+- BitCoil Vault: `0x06db1433c69b83b21fbb343142ea4178c144ae9da0e8f9e0ce9f8aca0ca5c40f`
+- MockERC20 WBTC: `0x07a2faa6843b61fd5e4ef1b3f2b335a77a73cf665bc5584a477fd7e022402f9d`
+- MockERC20 USDC: `0x05d6707d4baa5558a4d7732868a1cbe4fca6161d1643113ca34f4d03d7078af0`
+- MockLending (Vesu): `0x053ceca66a5738fe217071c439afdcab1168806f58a16ff6e037d3f1a08dd4fd`
+- MockDEX (Ekubo): `0x0341972f9515b023c28dcaed753e34af570e45871726a06caf0c93c3ce0d95c1`
+- Deployer: `0x034ba56f92265f0868c57d3fe72ecab144fc96f97954bbbc4252cef8e8a979ba`
+
+## Class Hashes (declared)
+- BitCoil: `0x4b9449e9f5e6d5774a2d05b1151da2ef5c238d4092e55b86239e14786f99f64`
+- MockERC20: `0x4269fa5aa9141aa085364c951203d598f509b54ddff10e74ef299e1b6b256e2`
+- MockLending: `0x114633a3b13b5e803f429ea1746320b08f5bee9da39d56b610e90dba23a8896`
+- MockDEX: `0x261360bfe3b011332fd6a8f89a1040c9259211e594e1e02f500b7ecf61b1109`
+
 ## Key Addresses (Sepolia)
 - Pyth: `0x07f2b07b6b5365e7ee055bda4c0ecabd867e6d3ee298d73aea32b027667186d6`
 - BTC/USD Feed: `0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43`
@@ -103,8 +117,12 @@ tests/
 - [x] Edge case tests
 
 ### Phase 6 — Testnet Deployment
-- [ ] Deploy to Starknet Sepolia
-- [ ] Integration test against live/mock contracts
+- [x] Deploy to starknet-devnet (local Sepolia simulation)
+- [x] Deploy mock contracts (MockERC20 WBTC/USDC, MockLending, MockDEX)
+- [x] Deploy BitCoil with full constructor args
+- [x] Verify deployment (get_position, get_health_factor, owner calls pass)
+- [x] Write deployment scripts (scripts/deploy_devnet.sh, scripts/deploy_sepolia.sh)
+- [ ] Deploy to Starknet Sepolia (requires manual faucet funding)
 
 ### Phase 7 — Testing + Hardening
 - [x] Edge cases, fuzz testing
